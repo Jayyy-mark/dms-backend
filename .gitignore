@@ -1,0 +1,5 @@
+.env
+__pycache__
+certs
+chroma_db
+media
