@@ -48,4 +48,4 @@ EXPOSE 8000
 # ================================
 # Run Django with Gunicorn
 # ================================
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--certfile", "/app/certs/localhost+2.pem", "--keyfile", "/app/certs/localhost+2-key.pem", "core.wsgi:application"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--certfile", "/app/certs/localhost+3.pem", "--keyfile", "/app/certs/localhost+3-key.pem", "core.wsgi:application"]
