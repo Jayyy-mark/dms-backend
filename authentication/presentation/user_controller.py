@@ -2,13 +2,28 @@ from rest_framework.views import APIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import status
+from dj_rest_auth.registration.views import RegisterView
+from rest_framework.exceptions import PermissionDenied
 
 from authentication.application.user_service import UserService
 from authentication.infrastructure.user_repository import UserRepository
+from authentication.presentation.permissions import HasFeaturePermission, check_feature_permission
 
+
+class CustomRegisterView(RegisterView):
+    def post(self, request, *args, **kwargs):
+        if request.user and request.user.is_authenticated:
+            if not check_feature_permission(request.user, "users", "create"):
+                return Response(
+                    {"error": "You do not have permission to add users.", "message": "Permission denied: create user"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return super().post(request, *args, **kwargs)
 
 
 class UserController(APIView):
+    permission_classes = [HasFeaturePermission]
+    feature_name = "users"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

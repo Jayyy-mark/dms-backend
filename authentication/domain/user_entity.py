@@ -12,3 +12,4 @@ class UserEntity:
     is_active:bool
     is_staff:bool
     last_login: Optional[datetime] = None
+
