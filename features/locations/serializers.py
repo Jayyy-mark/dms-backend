@@ -17,10 +17,22 @@ class LocationSerializer(serializers.ModelSerializer):
     Serializer for the Location model.
     """
     photos = LocationPhotoSerializer(many=True, read_only=True)
+    department_name = serializers.SerializerMethodField()
+    file_type = serializers.SerializerMethodField()
 
     class Meta:
         model = Location
         fields = "__all__"
+
+    def get_department_name(self, obj):
+        return obj.department.department_name if obj.department else ""
+
+    def get_file_type(self, obj):
+        if obj.photo and hasattr(obj.photo, "name") and obj.photo.name:
+            parts = obj.photo.name.split(".")
+            if len(parts) > 1:
+                return parts[-1].lower()
+        return "png"
 
 
 class LocationUpdateSerializer(serializers.ModelSerializer):

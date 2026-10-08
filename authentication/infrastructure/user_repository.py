@@ -22,10 +22,19 @@ class UserRepository:
         return True
 
     @staticmethod
-    def update(id: int, username: str, email: str, role: str) -> UserEntity:
+    def update(id: int, username: str = None, email: str = None, role: str = None, is_active: bool = None, password: str = None) -> UserEntity:
         obj = MogUser.objects.get(id=id)
-        obj.username = username
-        obj.email = email
-        obj.role = role
+        if username is not None:
+            obj.username = username
+        if email is not None:
+            obj.email = email
+        if role is not None:
+            obj.role = role
+        if is_active is not None:
+            if isinstance(is_active, str):
+                is_active = is_active.lower() in ["true", "1", "yes"]
+            obj.is_active = bool(is_active)
+        if password:
+            obj.set_password(password)
         obj.save()
         return UserMapper.toEntity(obj)

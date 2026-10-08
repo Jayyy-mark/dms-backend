@@ -25,3 +25,4 @@ mysql-connector-python
 django-extensions
 Werkzeug
 pyOpenSSL
+reportlab

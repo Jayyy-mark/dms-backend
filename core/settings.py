@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "features.chats",
     "features.dashboard",
     "features.locations",
+    "features.profiles",
     "authentication",
 ]
 
@@ -205,6 +206,7 @@ REST_AUTH = {
     "JWT_AUTH_REFRESH_COOKIE": "mogApp_refresh_cookie",
     "USER_DETAILS_SERIALIZER": "authentication.presentation.user_serializer.UserSerializer",
     "REGISTER_SERIALIZER": "authentication.presentation.register_serializer.CustomRegisterSerializer",
+    "LOGIN_SERIALIZER": "authentication.presentation.login_serializer.CustomLoginSerializer",
 }
 
 SIMPLE_JWT = {

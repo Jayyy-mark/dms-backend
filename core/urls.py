@@ -40,6 +40,7 @@ urlpatterns = [
     path('api/department/', include('features.departments.urls')),
     path('api/dashboard/', include('features.dashboard.urls')),
     path('api/location/', include('features.locations.urls')),
+    path('api/', include('features.profiles.urls')),
 ]
 
 from django.conf import settings

@@ -34,10 +34,16 @@ class MobileLoginView(APIView):
             except User.DoesNotExist:
                 pass
 
-        if user is None or not user.is_active:
+        if user is None:
             return Response(
                 {"error": "Invalid email or password."},
                 status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not user.is_active:
+            return Response(
+                {"error": "Your account has been banned."},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         # Generate simplejwt tokens

@@ -19,5 +19,5 @@ class UserService:
     def delete(self, id:int):
         return self.delete_user_usecase.execute(id)
     
-    def update(self, id: int, username: str, email: str, role: str):
-        return self.update_user_usecase.execute(id=id, username=username, email=email, role=role)
+    def update(self, id: int, username: str = None, email: str = None, role: str = None, is_active: bool = None, password: str = None):
+        return self.update_user_usecase.execute(id=id, username=username, email=email, role=role, is_active=is_active, password=password)

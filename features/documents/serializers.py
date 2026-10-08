@@ -3,6 +3,7 @@ from features.documents.models import Document
 from features.staffs.models import Staff
 from features.categories.serializers import CategorySerializer
 from features.dtypes.serializers import DtypeSerializer
+from features.dtypes.models import Dtype
 from features.departments.models import Department
 
 
@@ -103,7 +104,11 @@ class DeepSearchDocumentSerializer(serializers.Serializer):
 
 
 class DocumentUpdateSerializer(serializers.ModelSerializer):
-    category_id = serializers.IntegerField(required=True, allow_null=True)
+    category_id = serializers.IntegerField(required=False, allow_null=True)
+    dtype_id = serializers.IntegerField(required=False, allow_null=True)
+    staff_id = serializers.IntegerField(required=False, allow_null=True)
+    expired_at = serializers.DateField(required=False, allow_null=True)
+    document = serializers.FileField(required=False, allow_null=True)
 
     class Meta:
         model = Document
@@ -114,4 +119,29 @@ class DocumentUpdateSerializer(serializers.ModelSerializer):
             "category_id",
             "dtype_id",
             "description",
+            "expired_at",
+            "document",
         ]
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, "copy") else dict(data)
+        if "dtype" in data and "dtype_id" not in data:
+            data["dtype_id"] = data["dtype"]
+        if "category" in data and "category_id" not in data:
+            data["category_id"] = data["category"]
+        if "staff" in data and "staff_id" not in data:
+            data["staff_id"] = data["staff"]
+        if "expired_at" in data and (data["expired_at"] == "" or data["expired_at"] == "null"):
+            data["expired_at"] = None
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        dtype_id = attrs.get("dtype_id")
+        if dtype_id:
+            try:
+                dtype_obj = Dtype.objects.get(id=dtype_id)
+                if not "temporary" in dtype_obj.dtype_name.lower():
+                    attrs["expired_at"] = None
+            except Dtype.DoesNotExist:
+                pass
+        return attrs

@@ -3,7 +3,11 @@
 #=================================-->
 from django.urls import path
 from dj_rest_auth.views import LoginView, UserDetailsView, LogoutView
+from rest_framework import permissions
 
+class CustomLoginView(LoginView):
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
 from authentication.presentation.user_controller import UserController, CustomRegisterView
 from authentication.presentation.cookie_controller import CookieTokenRefreshView
 from authentication.presentation.mobile_auth_controller import MobileLoginView
@@ -23,7 +27,7 @@ from authentication.presentation.permission_controller import (
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
-    path("login/", LoginView.as_view(), name="login"),
+    path("login/", CustomLoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("register/", CustomRegisterView.as_view(), name="signup"),
     path("user/", UserDetailsView.as_view(), name="user-details"),

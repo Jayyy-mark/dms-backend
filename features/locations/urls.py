@@ -5,6 +5,7 @@ from features.locations.views import (
     GetLocationByColumnView,
     GetLocationByIdView,
     GetLocationOptionsView,
+    ExportLocationPdfView,
 )
 
 urlpatterns = [
@@ -16,4 +17,5 @@ urlpatterns = [
     path("search/<int:id>/", GetLocationByIdView.as_view()),
     path("search/", GetLocationByColumnView.as_view()),
     path("options/", GetLocationOptionsView.as_view()),
+    path("export-pdf/", ExportLocationPdfView.as_view()),
 ]
