@@ -219,5 +219,106 @@ def deepSearch(documents, keys):
     return [asdict(item) for item in document_list]
 
 
+def filter_and_paginate_documents(base_qs, params):
+    from django.utils import timezone
+    from features.shared.helpers.helper import paginate_queryset, _to_int
+
+    qs = base_qs
+
+    # Advanced search params (from SearchDocument / SearchArchiveDoc / SearchRecycleDoc)
+    try:
+        adv_filters, category_qs = setDocumentFilters(params)
+        qs = qs.filter(adv_filters)
+        if category_qs:
+            qs = qs.filter(category__in=category_qs)
+    except Exception:
+        pass
+
+    # Text search (document_name, staff_name, document_id, description, category_name)
+    search = (params.get("search") or "").strip()
+    if search:
+        qs = qs.filter(
+            Q(document_name__icontains=search)
+            | Q(staff__staff_name__icontains=search)
+            | Q(document_id__icontains=search)
+            | Q(description__icontains=search)
+            | Q(category__category_name__icontains=search)
+        )
+
+    # Category multi-select filter (comma-separated IDs)
+    categories_param = (params.get("categories") or "").strip()
+    if categories_param:
+        cat_ids = [int(x) for x in categories_param.split(",") if x.strip().isdigit()]
+        if cat_ids:
+            qs = qs.filter(category_id__in=cat_ids)
+
+    # Staff multi-select filter (comma-separated IDs)
+    staff_ids_param = (params.get("staff_ids") or "").strip()
+    if staff_ids_param:
+        s_ids = [int(x) for x in staff_ids_param.split(",") if x.strip().isdigit()]
+        if s_ids:
+            qs = qs.filter(staff_id__in=s_ids)
+
+    today = timezone.localdate()
+    expired_q = Q(dtype__dtype_name__iexact="Temporary", expired_at__isnull=False, expired_at__lt=today)
+    temporary_q = Q(dtype__dtype_name__iexact="Temporary", expired_at__isnull=False, expired_at__gte=today)
+    permanent_q = ~Q(dtype__dtype_name__iexact="Temporary") | Q(expired_at__isnull=True)
+
+    # Drawer doc_types filter ("permanent", "temporary")
+    doc_types_param = (params.get("doc_types") or "").strip()
+    if doc_types_param:
+        dtypes = [x.strip().lower() for x in doc_types_param.split(",") if x.strip()]
+        dtype_q = Q()
+        if "permanent" in dtypes:
+            dtype_q |= permanent_q
+        if "temporary" in dtypes:
+            dtype_q |= temporary_q | expired_q
+        if dtype_q:
+            qs = qs.filter(dtype_q)
+
+    # Drawer statuses filter ("active", "expired")
+    statuses_param = (params.get("statuses") or "").strip()
+    if statuses_param:
+        st_list = [x.strip().lower() for x in statuses_param.split(",") if x.strip()]
+        if "active" in st_list and "expired" not in st_list:
+            qs = qs.exclude(expired_q)
+        elif "expired" in st_list and "active" not in st_list:
+            qs = qs.filter(expired_q)
+
+    # Anchor snapshot_id before computing tab stats so stats & pagination stay consistent
+    raw_snapshot = _to_int(params.get("snapshot_id"), 0)
+    if raw_snapshot > 0:
+        qs = qs.filter(id__lte=raw_snapshot)
+
+    stats = {
+        "all": qs.count(),
+        "permanent": qs.filter(permanent_q).count(),
+        "temporary": qs.filter(temporary_q).count(),
+        "expired": qs.filter(expired_q).count(),
+    }
+
+    # Tab filter ("all", "permanent", "temporary", "expired")
+    tab = (params.get("tab") or "all").strip().lower()
+    if tab == "permanent":
+        qs = qs.filter(permanent_q)
+    elif tab == "temporary":
+        qs = qs.filter(temporary_q)
+    elif tab == "expired":
+        qs = qs.filter(expired_q)
+
+    # Sorting ("recent", "older", "alphabetical")
+    sort_by = (params.get("sort_by") or "recent").strip().lower()
+    if sort_by == "older":
+        qs = qs.order_by("created_at", "id")
+    elif sort_by == "alphabetical":
+        qs = qs.order_by("document_name", "-id")
+    else:
+        qs = qs.order_by("-created_at", "-id")
+
+    page_docs, pagination = paginate_queryset(qs, Document, params)
+    return page_docs, pagination, stats
+
+
+
 
 

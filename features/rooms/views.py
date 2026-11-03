@@ -8,7 +8,7 @@ class RoomView(views.APIView):
 
     def post(self, request):
         serializer = RoomSerializer(data=request.data)
-        serializer.initial_data["room_id"] = generateId(Room, "room_id", "R")
+        serializer.initial_data["room_id"] = generateId(Room, "room_id", "ROOM")
         serializer.is_valid(raise_exception=True)
         room = serializer.save()
         res = RoomSerializer(room).data

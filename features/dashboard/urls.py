@@ -5,6 +5,7 @@ from .views import (
     DashboardTrafficView,
     DashboardStaffPerformanceView,
     DashboardCategorySummaryView,
+    GlobalSearchView,
 )
 
 urlpatterns = [
@@ -13,4 +14,5 @@ urlpatterns = [
     path("traffic/", DashboardTrafficView.as_view()),
     path("staff-performance/", DashboardStaffPerformanceView.as_view()),
     path("category-summary/", DashboardCategorySummaryView.as_view()),
+    path("global-search/", GlobalSearchView.as_view()),
 ]

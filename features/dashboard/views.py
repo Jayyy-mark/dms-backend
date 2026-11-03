@@ -13,6 +13,7 @@ from .helpers import (
     getDocumentTrafficSummary,
     getStaffPerformanceSummary,
     getCategoryDocumentSummary,
+    globalSystemSearch,
 )
 from common.security.authorization.roles import Roles
 
@@ -109,3 +110,18 @@ class DashboardCategorySummaryView(APIView):
             department_name=department_name,
         )
         return Response({"category_summary": summary_data})
+
+
+class GlobalSearchView(APIView):
+    """Unified, optimized global search endpoint for the topbar command & search palette."""
+
+    def get(self, request: Request) -> Response:
+        query = request.query_params.get("q", "")
+        limit = request.query_params.get("limit", 5)
+        try:
+            limit_val = int(limit)
+        except (TypeError, ValueError):
+            limit_val = 5
+
+        data = globalSystemSearch(query=query, user=request.user, limit=limit_val)
+        return Response(data)

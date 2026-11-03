@@ -11,7 +11,9 @@ from features.documents.serializers import (
 )
 from features.documents.models import Document
 from features.shared.helpers.helper import generateId, toApiResponse, log_action
-from features.documents.helpers import setDocumentFilters, deepSearch
+from features.documents.helpers import setDocumentFilters, deepSearch, filter_and_paginate_documents
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from common.security.authorization.roles import Roles
 
 
@@ -418,4 +420,94 @@ class DeepSearchDocumentView(APIView):
 
         matched_documents = deepSearch(documents, serializer.validated_data.get("text"))
 
+        matched_documents = deepSearch(documents, serializer.validated_data.get("text"))
+
         return Response({"documents": matched_documents})
+
+
+# <!--==============================
+#  SERVER-SIDE PAGINATED LIST VIEWS
+# ================================-->
+@method_decorator(never_cache, name="dispatch")
+class DocumentListView(APIView):
+    """
+    GET document/list/?limit=10&offset=0&tab=all&search=&categories=&sort_by=recent&snapshot_id=
+    Database-level pagination & stats for Active Documents.
+    """
+
+    def get(self, request: Request) -> Response:
+        dept_filter = get_department_filter(request)
+        base_qs = Document.objects.select_related(
+            "staff",
+            "category",
+            "dtype",
+            "staff__department",
+            "category__parent",
+            "category__parent__parent",
+        ).filter(dept_filter, is_archived=False, is_recycled=False)
+
+        page_docs, pagination, stats = filter_and_paginate_documents(base_qs, request.query_params)
+        return Response(
+            {
+                "documents": DocumentSerializer(page_docs, many=True).data,
+                "pagination": pagination,
+                "stats": stats,
+            }
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class ArchivedDocumentListView(APIView):
+    """
+    GET document/archive/list/?limit=10&offset=0&tab=all&search=&categories=&snapshot_id=
+    Database-level pagination & stats for Archived Documents.
+    """
+
+    def get(self, request: Request) -> Response:
+        dept_filter = get_department_filter(request)
+        base_qs = Document.objects.select_related(
+            "staff",
+            "category",
+            "dtype",
+            "staff__department",
+            "category__parent",
+            "category__parent__parent",
+        ).filter(dept_filter, is_archived=True)
+
+        page_docs, pagination, stats = filter_and_paginate_documents(base_qs, request.query_params)
+        return Response(
+            {
+                "documents": DocumentSerializer(page_docs, many=True).data,
+                "pagination": pagination,
+                "stats": stats,
+            }
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class RecycledDocumentListView(APIView):
+    """
+    GET document/recycle/list/?limit=10&offset=0&tab=all&search=&categories=&snapshot_id=
+    Database-level pagination & stats for Recycled Documents.
+    """
+
+    def get(self, request: Request) -> Response:
+        dept_filter = get_department_filter(request)
+        base_qs = Document.objects.select_related(
+            "staff",
+            "category",
+            "dtype",
+            "staff__department",
+            "category__parent",
+            "category__parent__parent",
+        ).filter(dept_filter, is_recycled=True)
+
+        page_docs, pagination, stats = filter_and_paginate_documents(base_qs, request.query_params)
+        return Response(
+            {
+                "documents": DocumentSerializer(page_docs, many=True).data,
+                "pagination": pagination,
+                "stats": stats,
+            }
+        )
+

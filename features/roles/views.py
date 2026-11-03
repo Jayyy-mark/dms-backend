@@ -8,7 +8,7 @@ class RoleView(views.APIView):
 
     def post(self, request):
         serializer = RoleSerializer(data=request.data)
-        serializer.initial_data["role_id"] = generateId(Role, "role_id", "R")
+        serializer.initial_data["role_id"] = generateId(Role, "role_id", "ROLE")
         serializer.is_valid(raise_exception=True)
         role = serializer.save()
         res = RoleSerializer(role).data

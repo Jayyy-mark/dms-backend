@@ -8,7 +8,7 @@ class DepartmentView(views.APIView):
 
     def post(self, request):
         serializer = DepartmentSerializer(data=request.data)
-        serializer.initial_data["department_id"] = generateId(Department, "department_id", "D")
+        serializer.initial_data["department_id"] = generateId(Department, "department_id", "DPMT")
         serializer.is_valid(raise_exception=True)
         department = serializer.save()
         res = DepartmentSerializer(department).data

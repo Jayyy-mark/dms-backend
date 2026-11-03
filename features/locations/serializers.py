@@ -1,5 +1,17 @@
 from rest_framework import serializers
 from features.locations.models import Location, LocationPhoto
+from features.departments.serializers import DepartmentSerializer
+
+
+class IntegerOrNullField(serializers.IntegerField):
+    """
+    IntegerField that converts empty string "" or None to None cleanly.
+    """
+
+    def to_internal_value(self, data):
+        if data == "" or data is None:
+            return None
+        return super().to_internal_value(data)
 
 
 class LocationPhotoSerializer(serializers.ModelSerializer):
@@ -16,6 +28,8 @@ class LocationSerializer(serializers.ModelSerializer):
     """
     Serializer for the Location model.
     """
+    department_id = IntegerOrNullField(required=False, allow_null=True)
+    department = DepartmentSerializer(read_only=True)
     photos = LocationPhotoSerializer(many=True, read_only=True)
     department_name = serializers.SerializerMethodField()
     file_type = serializers.SerializerMethodField()
@@ -55,6 +69,11 @@ class LocationUpdateSerializer(serializers.ModelSerializer):
 
     date = serializers.DateField(required=False, allow_null=True)
 
+    department_id = IntegerOrNullField(required=False, allow_null=True)
+    location_type = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True
+    )
+
     class Meta:
         model = Location
         fields = [
@@ -65,6 +84,8 @@ class LocationUpdateSerializer(serializers.ModelSerializer):
             "city",
             "state_division",
             "date",
+            "department_id",
+            "location_type",
         ]
 
 

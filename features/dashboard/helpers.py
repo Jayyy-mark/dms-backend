@@ -306,3 +306,241 @@ def getCategoryDocumentSummary(department_id=None, department_name=None):
         "counts": counts_by_period,
         "departments": departments_list,
     }
+
+
+def globalSystemSearch(query: str, user, limit: int = 5):
+    """
+    Fast, permission- and department-scoped global search across core MOGE models.
+    Uses values/select_related + strict LIMIT slicing + short-lived cache for low latency.
+    """
+    import unicodedata
+    from django.db.models import Q
+    from django.core.cache import cache
+    from features.locations.models import Location
+    from features.rooms.models import Room
+    from common.security.authorization.roles import Roles
+
+    clean_q = unicodedata.normalize("NFKC", (query or "").strip())
+    if not clean_q:
+        return {
+            "query": "",
+            "total": 0,
+            "results": {
+                "documents": [],
+                "locations": [],
+                "staffs": [],
+                "departments": [],
+                "categories": [],
+                "facilities": [],
+                "users": [],
+            },
+        }
+
+    safe_limit = max(1, min(int(limit or 5), 10))
+    user_role = getattr(user, "role", "") or ""
+    is_privileged = user_role in Roles.PRIVILEGED
+
+    department_id = None
+    if not is_privileged:
+        staff_obj = getattr(user, "staff", None)
+        if staff_obj is not None:
+            department_id = staff_obj.department_id
+
+    cache_key = f"global_search:{getattr(user, 'id', 0)}:{user_role}:{department_id}:{clean_q.lower()}:{safe_limit}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # 1. Documents
+    doc_qs = Document.objects.select_related("category", "staff__department", "dtype").filter(
+        Q(document_name__icontains=clean_q)
+        | Q(document_id__icontains=clean_q)
+        | Q(description__icontains=clean_q)
+        | Q(category__category_name__icontains=clean_q)
+        | Q(staff__staff_name__icontains=clean_q)
+    )
+    if department_id is not None:
+        doc_qs = doc_qs.filter(staff__department_id=department_id)
+
+    documents = []
+    for d in doc_qs.order_by("-updated_at")[:safe_limit]:
+        if d.is_recycled:
+            status = "recycled"
+            target_url = "/documents/recycles/"
+        elif d.is_archived:
+            status = "archived"
+            target_url = "/documents/archives/"
+        else:
+            status = "active"
+            target_url = f"/documents/edit/{d.id}"
+
+        subtitle_parts = []
+        if d.category:
+            subtitle_parts.append(d.category.category_name)
+        if d.staff and d.staff.department:
+            subtitle_parts.append(d.staff.department.department_name)
+        elif d.staff:
+            subtitle_parts.append(d.staff.staff_name)
+
+        documents.append({
+            "id": d.id,
+            "code": d.document_id,
+            "title": d.document_name,
+            "subtitle": " • ".join(subtitle_parts) if subtitle_parts else (d.description or "Document"),
+            "status": status,
+            "file_url": d.document.url if d.document else None,
+            "url": target_url,
+            "type": "document",
+        })
+
+    # 2. Locations / Activity Records
+    loc_qs = Location.objects.select_related("department").filter(
+        Q(location_name__icontains=clean_q)
+        | Q(location_id__icontains=clean_q)
+        | Q(city__icontains=clean_q)
+        | Q(state_division__icontains=clean_q)
+        | Q(location_type__icontains=clean_q)
+        | Q(description__icontains=clean_q)
+        | Q(department__department_name__icontains=clean_q)
+    )
+    if department_id is not None:
+        loc_qs = loc_qs.filter(department_id=department_id)
+
+    locations = []
+    for loc in loc_qs.order_by("-id")[:safe_limit]:
+        sub = [p for p in [loc.city, loc.state_division, loc.department.department_name if loc.department else None] if p]
+        locations.append({
+            "id": loc.id,
+            "code": loc.location_id,
+            "title": loc.location_name,
+            "subtitle": " • ".join(sub) if sub else (loc.location_type or "Activity Location"),
+            "url": f"/locations/edit/{loc.id}",
+            "type": "location",
+        })
+
+    # 3. Staffs
+    staff_qs = Staff.objects.select_related("department", "rank", "role").filter(
+        Q(staff_name__icontains=clean_q)
+        | Q(staff_id__icontains=clean_q)
+        | Q(staff_email__icontains=clean_q)
+        | Q(staff_ph_number__icontains=clean_q)
+        | Q(department__department_name__icontains=clean_q)
+        | Q(rank__rank_name__icontains=clean_q)
+    )
+    if department_id is not None:
+        staff_qs = staff_qs.filter(department_id=department_id)
+
+    staffs = []
+    for s in staff_qs.order_by("-id")[:safe_limit]:
+        sub = [p for p in [s.rank.rank_name if s.rank else None, s.department.department_name if s.department else None, s.staff_email] if p]
+        staffs.append({
+            "id": s.id,
+            "code": s.staff_id,
+            "title": s.staff_name,
+            "subtitle": " • ".join(sub) if sub else "Staff Member",
+            "url": f"/staff/edit/{s.id}",
+            "type": "staff",
+        })
+
+    # 4. Departments
+    dept_qs = Department.objects.select_related("room__building").filter(
+        Q(department_name__icontains=clean_q)
+        | Q(department_id__icontains=clean_q)
+        | Q(room__room_name__icontains=clean_q)
+    )
+    departments = []
+    for dept in dept_qs.order_by("department_name")[:safe_limit]:
+        room_info = None
+        if dept.room:
+            room_info = f"{dept.room.room_name}" + (f" ({dept.room.building.building_name})" if dept.room.building else "")
+        departments.append({
+            "id": dept.id,
+            "code": dept.department_id,
+            "title": dept.department_name,
+            "subtitle": room_info or "Department",
+            "url": f"/departments/edit/{dept.id}",
+            "type": "department",
+        })
+
+    # 5. Categories
+    cat_qs = Category.objects.select_related("parent").filter(
+        Q(category_name__icontains=clean_q) | Q(category_id__icontains=clean_q)
+    )
+    categories = []
+    for cat in cat_qs.order_by("category_name")[:safe_limit]:
+        categories.append({
+            "id": cat.id,
+            "code": cat.category_id,
+            "title": cat.category_name,
+            "subtitle": f"Parent: {cat.parent.category_name}" if cat.parent else "Root Category",
+            "url": f"/categories/edit/{cat.id}",
+            "type": "category",
+        })
+
+    # 6. Facilities (Buildings & Rooms)
+    facilities = []
+    for b in Building.objects.filter(Q(building_name__icontains=clean_q) | Q(building_id__icontains=clean_q))[:3]:
+        facilities.append({
+            "id": b.id,
+            "code": b.building_id,
+            "title": b.building_name,
+            "subtitle": "Building",
+            "url": f"/buildings/edit/{b.id}",
+            "type": "building",
+        })
+    for r in Room.objects.select_related("building").filter(
+        Q(room_name__icontains=clean_q) | Q(room_id__icontains=clean_q)
+    )[:3]:
+        facilities.append({
+            "id": r.id,
+            "code": r.room_id,
+            "title": r.room_name,
+            "subtitle": f"Room • {r.building.building_name}" if r.building else "Room",
+            "url": f"/rooms/edit/{r.id}",
+            "type": "room",
+        })
+
+    # 7. Users (Privileged / Admin roles)
+    users = []
+    if is_privileged:
+        user_qs = MogUser.objects.select_related("staff").filter(
+            Q(username__icontains=clean_q)
+            | Q(email__icontains=clean_q)
+            | Q(user_id__icontains=clean_q)
+            | Q(role__icontains=clean_q)
+        )
+        for u in user_qs.order_by("-id")[:safe_limit]:
+            users.append({
+                "id": u.id,
+                "code": u.user_id,
+                "title": u.username,
+                "subtitle": f"{u.email} • {u.role}",
+                "url": f"/users/edit/{u.id}",
+                "type": "user",
+            })
+
+    total = (
+        len(documents)
+        + len(locations)
+        + len(staffs)
+        + len(departments)
+        + len(categories)
+        + len(facilities)
+        + len(users)
+    )
+
+    payload = {
+        "query": clean_q,
+        "total": total,
+        "results": {
+            "documents": documents,
+            "locations": locations,
+            "staffs": staffs,
+            "departments": departments,
+            "categories": categories,
+            "facilities": facilities,
+            "users": users,
+        },
+    }
+    cache.set(cache_key, payload, timeout=15)
+    return payload

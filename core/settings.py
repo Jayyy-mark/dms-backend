@@ -185,6 +185,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ==============================================-->
 MIDDLEWARE += [
     "common.security.middleware.jwt_middleware.JWTMiddleware",
+    "common.security.middleware.duplicate_request_middleware.DuplicateRequestGuardMiddleware",
     "common.audit.middleware.audit_log_middleware.AuditLogMiddleware",
 ]
 
@@ -230,15 +231,19 @@ INSTALLED_APPS += [
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or SECRET_KEY
 FIELD_ENCRYPTION_KEY = b"CHANGE_ME_32_BYTE_KEY"
 
-# CORS_ALLOW_ALL_ORIGINS = True
-# CORS_ALLOW_CREDENTIALS = True
-
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = [
-    "https://localhost:5173",  # Vite frontend
-    "https://127.0.0.1:5173",
-    "https://172.19.1.156:5173"
-]
+
+# CORS_ALLOW_CREDENTIALS = True
+# CORS_ALLOWED_ORIGINS = [
+#     "https://localhost:5173",  # Vite frontend
+#     "https://localhost",
+#     "https://127.0.0.1:5173",
+#     "https://172.19.1.156:5173",
+#     "https://192.168.0.2",
+#     "https://192.168.1.118",
+#     "https://192.168.20.141",
+# ]
 
 APPEND_SLASH = False
 SITE_ID = 1
@@ -256,11 +261,11 @@ REST_AUTH.update(
 )
 
 # Change these lines to be conditional:
-SESSION_COOKIE_SAMESITE = "Lax" if DEBUG else "None"
-CSRF_COOKIE_SAMESITE = "Lax" if DEBUG else "None"
+SESSION_COOKIE_SAMESITE = "Lax" #use "None" for Secure https
+CSRF_COOKIE_SAMESITE = "Lax" #use "None" for Secure https
 
-SESSION_COOKIE_SECURE = False if DEBUG else True
-CSRF_COOKIE_SECURE = False if DEBUG else True
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
 
 
 # REST_AUTH.update(

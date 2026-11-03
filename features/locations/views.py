@@ -34,6 +34,7 @@ def get_location_department_filter(request) -> Q:
 # ================================-->
 from features.locations.models import Location, LocationPhoto
 
+
 class LocationView(APIView):
 
     def post(self, request: Request) -> Response:
@@ -53,7 +54,9 @@ class LocationView(APIView):
         location = serializer.save()
 
         # Handle multiple photos save
-        uploaded_photos = request.FILES.getlist("photos") or request.FILES.getlist("photo")
+        uploaded_photos = request.FILES.getlist("photos") or request.FILES.getlist(
+            "photo"
+        )
         for file in uploaded_photos:
             LocationPhoto.objects.create(location=location, photo=file)
             if not location.photo:
@@ -77,14 +80,15 @@ class LocationView(APIView):
     def get(self, request: Request) -> Response:
 
         dept_filter = get_location_department_filter(request)
-        locations = Location.objects.filter(dept_filter)
+        locations = Location.objects.select_related("department").filter(dept_filter)
+        
         res = LocationSerializer(locations, many=True)
-
+        print("this is Location data : ", res.data)
         return Response({"locations": res.data})
 
     def put(self, request: Request, id: int) -> Response:
         print("route entered!")
-        location = Location.objects.get(id=id)
+        location = Location.objects.select_related("department").get(id=id)
         serializer = LocationUpdateSerializer(instance=location, data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -130,7 +134,7 @@ class GetLocationByIdView(APIView):
 
     def get(self, request: Request, id: int) -> Response:
 
-        location = Location.objects.get(id=id)
+        location = Location.objects.select_related("department").get(id=id)
 
         return Response({"location": LocationSerializer(location).data})
 
@@ -146,7 +150,11 @@ class GetLocationByColumnView(APIView):
         filters = setLocationFilters(serializer.validated_data)
         dept_filter = get_location_department_filter(request)
 
-        locations = Location.objects.filter(dept_filter).filter(filters)
+        locations = (
+            Location.objects.select_related("department")
+            .filter(dept_filter)
+            .filter(filters)
+        )
 
         return Response({"locations": LocationSerializer(locations, many=True).data})
 
@@ -195,52 +203,76 @@ class GetLocationOptionsView(APIView):
         )
 
 
+import html
 import io
 import os
+import fitz
 from django.http import HttpResponse
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 
 
-def get_pdf_fonts():
-    font_name = "Helvetica"
-    bold_font_name = "Helvetica-Bold"
-
-    candidates = [
-        ("Pyidaungsu", "C:/Windows/Fonts/Pyidaungsu-2.5.3_Regular.ttf"),
-        ("Pyidaungsu-Bold", "C:/Windows/Fonts/Pyidaungsu-2.5.3_Bold.ttf"),
-        ("MyanmarText", "C:/Windows/Fonts/mmrtext.ttf"),
-        ("MyanmarText-Bold", "C:/Windows/Fonts/mmrtextb.ttf"),
+def get_pdf_font_archive_and_css() -> tuple[fitz.Archive, str]:
+    archive = fitz.Archive()
+    font_dirs = [
+        "C:/Windows/Fonts",
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
     ]
-    for name, path in candidates:
-        if os.path.exists(path) and name not in pdfmetrics.getRegisteredFontNames():
+    for d in font_dirs:
+        if os.path.isdir(d):
             try:
-                pdfmetrics.registerFont(TTFont(name, path))
+                archive.add(d)
             except Exception:
                 pass
 
-    if "Pyidaungsu" in pdfmetrics.getRegisteredFontNames():
-        font_name = "Pyidaungsu"
-        bold_font_name = (
-            "Pyidaungsu-Bold"
-            if "Pyidaungsu-Bold" in pdfmetrics.getRegisteredFontNames()
-            else "Pyidaungsu"
-        )
-    elif "MyanmarText" in pdfmetrics.getRegisteredFontNames():
-        font_name = "MyanmarText"
-        bold_font_name = (
-            "MyanmarText-Bold"
-            if "MyanmarText-Bold" in pdfmetrics.getRegisteredFontNames()
-            else "MyanmarText"
-        )
+    regular_candidates = [
+        ("C:/Windows/Fonts/Pyidaungsu-2.5.3_Regular.ttf", "Pyidaungsu-2.5.3_Regular.ttf"),
+        ("C:/Windows/Fonts/mmrtext.ttf", "mmrtext.ttf"),
+        ("/usr/share/fonts/truetype/padauk/Padauk-Regular.ttf", "Padauk-Regular.ttf"),
+        ("/usr/share/fonts/truetype/noto/NotoSansMyanmar-Regular.ttf", "NotoSansMyanmar-Regular.ttf"),
+    ]
+    bold_candidates = [
+        ("C:/Windows/Fonts/Pyidaungsu-2.5.3_Bold.ttf", "Pyidaungsu-2.5.3_Bold.ttf"),
+        ("C:/Windows/Fonts/mmrtextb.ttf", "mmrtextb.ttf"),
+        ("/usr/share/fonts/truetype/padauk/Padauk-Bold.ttf", "Padauk-Bold.ttf"),
+        ("/usr/share/fonts/truetype/noto/NotoSansMyanmar-Bold.ttf", "NotoSansMyanmar-Bold.ttf"),
+    ]
 
-    return font_name, bold_font_name
+    reg_font = None
+    for full_path, fname in regular_candidates:
+        if os.path.exists(full_path):
+            reg_font = fname
+            break
+
+    bold_font = None
+    for full_path, fname in bold_candidates:
+        if os.path.exists(full_path):
+            bold_font = fname
+            break
+
+    if reg_font and not bold_font:
+        bold_font = reg_font
+
+    font_face_css = ""
+    if reg_font:
+        font_face_css = f"""
+        @font-face {{
+            font-family: 'MyanmarFont';
+            src: url('{reg_font}');
+            font-weight: normal;
+        }}
+        @font-face {{
+            font-family: 'MyanmarFont';
+            src: url('{bold_font}');
+            font-weight: bold;
+        }}
+        """
+
+    return archive, font_face_css
 
 
+@method_decorator(never_cache, name="dispatch")
 class ExportLocationPdfView(APIView):
     def get(self, request: Request) -> HttpResponse:
         dept_filter = get_location_department_filter(request)
@@ -258,71 +290,68 @@ class ExportLocationPdfView(APIView):
                 | Q(photo__icontains=search)
             )
 
-        font_name, bold_font_name = get_pdf_fonts()
+        archive, font_face_css = get_pdf_font_archive_and_css()
 
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=landscape(A4),
-            rightMargin=30,
-            leftMargin=30,
-            topMargin=30,
-            bottomMargin=30,
-        )
+        css = f"""
+        {font_face_css}
+        body {{
+            font-family: 'MyanmarFont', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #1e293b;
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 15pt;
+        }}
+        .title {{
+            font-size: 16pt;
+            font-weight: bold;
+            color: #1a4a98;
+            margin: 0 0 4pt 0;
+        }}
+        .subtitle {{
+            font-size: 10pt;
+            color: #64748b;
+            margin: 0;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        th {{
+            background-color: #1a4a98;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 10pt;
+            padding: 6pt 6pt;
+            border: 0.5pt solid #e2e8f0;
+            text-align: center;
+        }}
+        td {{
+            font-size: 9pt;
+            padding: 6pt 6pt;
+            border: 0.5pt solid #e2e8f0;
+            color: #1e293b;
+        }}
+        tr.even td {{
+            background-color: #f8fafc;
+        }}
+        tr.odd td {{
+            background-color: #ffffff;
+        }}
+        .center {{
+            text-align: center;
+        }}
+        .left {{
+            text-align: left;
+        }}
+        """
 
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            "TitleStyle",
-            parent=styles["Normal"],
-            fontName=bold_font_name,
-            fontSize=16,
-            leading=20,
-            textColor=colors.HexColor("#1a4a98"),
-            alignment=1,
-        )
-        sub_style = ParagraphStyle(
-            "SubStyle",
-            parent=styles["Normal"],
-            fontName=font_name,
-            fontSize=10,
-            leading=14,
-            textColor=colors.HexColor("#64748b"),
-            alignment=1,
-        )
-        th_style = ParagraphStyle(
-            "THStyle",
-            parent=styles["Normal"],
-            fontName=bold_font_name,
-            fontSize=10,
-            leading=12,
-            textColor=colors.white,
-            alignment=1,
-        )
-        td_style = ParagraphStyle(
-            "TDStyle",
-            parent=styles["Normal"],
-            fontName=font_name,
-            fontSize=9,
-            leading=12,
-            textColor=colors.HexColor("#1e293b"),
-        )
-        td_center = ParagraphStyle(
-            "TDCenter",
-            parent=td_style,
-            alignment=1,
-        )
+        location_list = list(locations)
+        tr_list = []
 
-        elements = []
-        elements.append(Paragraph("Myanma Oil and Gas Enterprise (MOGE)", title_style))
-        elements.append(Spacer(1, 4))
-        elements.append(Paragraph(f"Locations Report ({locations.count()} items)", sub_style))
-        elements.append(Spacer(1, 15))
-
-        # Leaving action column on generate
-        headers = ["SL", "File Name", "File Type", "Department", "Uploaded Date"]
-        table_data = [[Paragraph(h, th_style) for h in headers]]
-
-        for idx, loc in enumerate(locations, start=1):
+        for idx, loc in enumerate(location_list, start=1):
             file_name = loc.location_name or "Unknown"
 
             file_type = "image"
@@ -333,43 +362,153 @@ class ExportLocationPdfView(APIView):
 
             dept_name = loc.department.department_name if loc.department else "—"
             uploaded_date = str(loc.date) if loc.date else "—"
+            row_cls = "odd" if idx % 2 == 1 else "even"
 
-            row = [
-                Paragraph(str(idx), td_center),
-                Paragraph(file_name, td_style),
-                Paragraph(file_type, td_center),
-                Paragraph(dept_name, td_style),
-                Paragraph(uploaded_date, td_center),
-            ]
-            table_data.append(row)
-
-        col_widths = [40, 260, 90, 250, 100]
-        t = Table(table_data, colWidths=col_widths, repeatRows=1)
-        t.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a4a98")),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 6),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-                    (
-                        "ROWBACKGROUNDS",
-                        (0, 1),
-                        (-1, -1),
-                        [colors.white, colors.HexColor("#f8fafc")],
-                    ),
-                ]
+            tr_list.append(
+                f"""
+                <tr class="{row_cls}">
+                    <td class="center" width="40">{idx}</td>
+                    <td class="left" width="260">{html.escape(str(file_name))}</td>
+                    <td class="center" width="90">{html.escape(str(file_type))}</td>
+                    <td class="left" width="250">{html.escape(str(dept_name))}</td>
+                    <td class="center" width="100">{html.escape(str(uploaded_date))}</td>
+                </tr>
+                """
             )
-        )
 
-        elements.append(t)
-        doc.build(elements)
+        if not tr_list:
+            tr_list.append(
+                """
+                <tr class="odd">
+                    <td class="center" colspan="5">No locations found.</td>
+                </tr>
+                """
+            )
 
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"></head>
+        <body>
+            <div class="header">
+                <div class="title">Myanma Oil and Gas Enterprise (MOGE)</div>
+                <div class="subtitle">Locations Report ({len(location_list)} items)</div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th width="40">SL</th>
+                        <th width="260">File Name</th>
+                        <th width="90">File Type</th>
+                        <th width="250">Department</th>
+                        <th width="100">Uploaded Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {"".join(tr_list)}
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+
+        buffer = io.BytesIO()
+        mediabox = fitz.paper_rect("a4-l")
+        where = mediabox + (30, 30, -30, -30)
+
+        story = fitz.Story(html=html_content, user_css=css, archive=archive)
+        writer = fitz.DocumentWriter(buffer)
+
+        more = True
+        while more:
+            device = writer.begin_page(mediabox)
+            more, _ = story.place(where)
+            story.draw(device)
+            writer.end_page()
+
+        writer.close()
         pdf_value = buffer.getvalue()
         buffer.close()
 
         response = HttpResponse(pdf_value, content_type="application/pdf")
         response["Content-Disposition"] = 'attachment; filename="locations.pdf"'
+        response = HttpResponse(pdf_value, content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="locations.pdf"'
         return response
+
+
+@method_decorator(never_cache, name="dispatch")
+class LocationListView(APIView):
+    """
+    GET location/list/?limit=10&offset=0&search=&folder=&snapshot_id=
+    Database-level pagination & folder stats for Locations.
+    """
+
+    def get(self, request: Request) -> Response:
+        from django.db.models import Count
+        from features.shared.helpers.helper import paginate_queryset, _to_int
+
+        dept_filter = get_location_department_filter(request)
+        params = request.query_params
+
+        base_qs = Location.objects.select_related("department").prefetch_related("photos").filter(dept_filter)
+
+        try:
+            adv_filters = setLocationFilters(params)
+            base_qs = base_qs.filter(adv_filters)
+        except Exception:
+            pass
+
+        raw_snapshot = _to_int(params.get("snapshot_id"), 0)
+        if raw_snapshot > 0:
+            base_qs = base_qs.filter(id__lte=raw_snapshot)
+
+        # Compute folder stats over the base queryset
+        folder_counts: dict[str, int] = {}
+        for row in base_qs.values("location_type").annotate(count=Count("id")):
+            fname = (row["location_type"] or "").strip() or "Untitled"
+            folder_counts[fname] = folder_counts.get(fname, 0) + row["count"]
+
+        folders_list = [
+            {"name": k, "count": folder_counts[k]}
+            for k in sorted(folder_counts.keys())
+        ]
+        stats = {
+            "total": sum(folder_counts.values()),
+            "folders": folders_list,
+        }
+
+        qs = base_qs
+
+        # Optional folder filter (when inside a folder)
+        folder = (params.get("folder") or "").strip()
+        if folder:
+            if folder == "Untitled":
+                qs = qs.filter(Q(location_type__isnull=True) | Q(location_type=""))
+            else:
+                qs = qs.filter(location_type=folder)
+
+        # Text search filter
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(location_name__icontains=search)
+                | Q(location_id__icontains=search)
+                | Q(city__icontains=search)
+                | Q(state_division__icontains=search)
+                | Q(location_type__icontains=search)
+                | Q(description__icontains=search)
+                | Q(department__department_name__icontains=search)
+            )
+
+        qs = qs.order_by("-date", "-id")
+        page_locs, pagination = paginate_queryset(qs, Location, params)
+
+        return Response(
+            {
+                "locations": LocationSerializer(page_locs, many=True).data,
+                "pagination": pagination,
+                "stats": stats,
+            }
+        )
+

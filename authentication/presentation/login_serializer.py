@@ -1,14 +1,16 @@
 from dj_rest_auth.serializers import LoginSerializer
 from django.contrib.auth import get_user_model
-from rest_framework import exceptions
+from rest_framework import exceptions, serializers
 
 User = get_user_model()
 
 
 class CustomLoginSerializer(LoginSerializer):
+    email = serializers.CharField(required=False, allow_blank=True)
+
     def validate(self, attrs):
-        email = attrs.get("email")
-        username = attrs.get("username")
+        email = (attrs.get("email") or "").strip()
+        username = (attrs.get("username") or "").strip()
         password = attrs.get("password")
 
         identifier = email or username

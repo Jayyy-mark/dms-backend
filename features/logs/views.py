@@ -1,166 +1,132 @@
+import html
 import io
 import os
-import datetime
+import fitz
 from django.utils import timezone
 from django.http import HttpResponse
-from django.db.models import Q
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from rest_framework.views import APIView, Request, Response
-from features.logs.models import AuditLog
 from features.logs.serializers import LogSerializer
-
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from features.logs.helpers import get_filtered_logs, paginate_logs, build_log_stats
+from features.locations.views import get_pdf_font_archive_and_css
 
 
-def get_pdf_fonts():
-    font_name = "Helvetica"
-    bold_font_name = "Helvetica-Bold"
-
-    candidates = [
-        ("Pyidaungsu", "C:/Windows/Fonts/Pyidaungsu-2.5.3_Regular.ttf"),
-        ("Pyidaungsu-Bold", "C:/Windows/Fonts/Pyidaungsu-2.5.3_Bold.ttf"),
-        ("MyanmarText", "C:/Windows/Fonts/mmrtext.ttf"),
-        ("MyanmarText-Bold", "C:/Windows/Fonts/mmrtextb.ttf"),
-    ]
-    for name, path in candidates:
-        if os.path.exists(path) and name not in pdfmetrics.getRegisteredFontNames():
-            try:
-                pdfmetrics.registerFont(TTFont(name, path))
-            except Exception:
-                pass
-
-    if "Pyidaungsu" in pdfmetrics.getRegisteredFontNames():
-        font_name = "Pyidaungsu"
-        bold_font_name = (
-            "Pyidaungsu-Bold"
-            if "Pyidaungsu-Bold" in pdfmetrics.getRegisteredFontNames()
-            else "Pyidaungsu"
-        )
-    elif "MyanmarText" in pdfmetrics.getRegisteredFontNames():
-        font_name = "MyanmarText"
-        bold_font_name = (
-            "MyanmarText-Bold"
-            if "MyanmarText-Bold" in pdfmetrics.getRegisteredFontNames()
-            else "MyanmarText"
-        )
-
-    return font_name, bold_font_name
-
-
+# <!--==============================
+#   LOGS VIEWS
+# ================================-->
+@method_decorator(never_cache, name="dispatch")
 class LogView(APIView):
+    """
+    GET log/all/ -> every log (optionally filtered by date/action/role/search).
+    Kept for backward compatibility (dashboard widget, client-side exports).
+    """
 
     def get(self, request: Request) -> Response:
 
-        logs = AuditLog.objects.select_related("user").all().order_by("-created_at")
+        logs = get_filtered_logs(request.query_params)
 
         return Response({"logs": LogSerializer(logs, many=True).data})
 
 
+@method_decorator(never_cache, name="dispatch")
+class LogListView(APIView):
+    """
+    GET log/list/?limit=50&offset=0&date=&action=&role=&search=&snapshot_id=&tz=
+    Server-side pagination: only `limit` rows are read from the database
+    (SQL LIMIT / OFFSET) together with the total count of matching rows.
+    """
+
+    def get(self, request: Request) -> Response:
+
+        logs = get_filtered_logs(request.query_params)
+        page_logs, pagination = paginate_logs(logs, request.query_params)
+
+        return Response(
+            {
+                "logs": LogSerializer(page_logs, many=True).data,
+                "pagination": pagination,
+            }
+        )
+
+
+@method_decorator(never_cache, name="dispatch")
+class LogStatsView(APIView):
+    """
+    GET log/stats/?tz= -> aggregated counts for the Logs dashboard header.
+    """
+
+    def get(self, request: Request) -> Response:
+
+        return Response({"stats": build_log_stats(request.query_params)})
+
+
+@method_decorator(never_cache, name="dispatch")
 class ExportLogPdfView(APIView):
     def get(self, request: Request) -> HttpResponse:
-        logs = AuditLog.objects.select_related("user").all().order_by("-created_at")
+        logs = list(get_filtered_logs(request.query_params))
+        archive, font_face_css = get_pdf_font_archive_and_css()
 
-        date_param = request.query_params.get("date", "").strip()
-        if date_param == "today":
-            logs = logs.filter(created_at__date=timezone.now().date())
-        elif date_param == "7days":
-            past = timezone.now() - datetime.timedelta(days=7)
-            logs = logs.filter(created_at__gte=past)
-        elif date_param == "30days":
-            past = timezone.now() - datetime.timedelta(days=30)
-            logs = logs.filter(created_at__gte=past)
+        css = f"""
+        {font_face_css}
+        body {{
+            font-family: 'MyanmarFont', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #1e293b;
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 15pt;
+        }}
+        .title {{
+            font-size: 16pt;
+            font-weight: bold;
+            color: #1a4a98;
+            margin: 0 0 4pt 0;
+        }}
+        .subtitle {{
+            font-size: 10pt;
+            color: #64748b;
+            margin: 0;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        th {{
+            background-color: #1a4a98;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 9pt;
+            padding: 5pt 5pt;
+            border: 0.5pt solid #e2e8f0;
+            text-align: center;
+        }}
+        td {{
+            font-size: 8.5pt;
+            padding: 5pt 5pt;
+            border: 0.5pt solid #e2e8f0;
+            color: #1e293b;
+        }}
+        tr.even td {{
+            background-color: #f8fafc;
+        }}
+        tr.odd td {{
+            background-color: #ffffff;
+        }}
+        .center {{
+            text-align: center;
+        }}
+        .left {{
+            text-align: left;
+        }}
+        """
 
-        action_param = request.query_params.get("action", "").strip()
-        if action_param and action_param.lower() != "all":
-            logs = logs.filter(action__iexact=action_param)
-
-        role_param = request.query_params.get("role", "").strip()
-        if role_param and role_param.lower() != "all":
-            logs = logs.filter(user__role__iexact=role_param)
-
-        search_param = request.query_params.get("search", "").strip()
-        if search_param:
-            logs = logs.filter(
-                Q(description__icontains=search_param)
-                | Q(model_name__icontains=search_param)
-                | Q(user__username__icontains=search_param)
-                | Q(action__icontains=search_param)
-            )
-
-        font_name, bold_font_name = get_pdf_fonts()
-
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=landscape(A4),
-            rightMargin=30,
-            leftMargin=30,
-            topMargin=30,
-            bottomMargin=30,
-        )
-
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            "TitleStyle",
-            parent=styles["Normal"],
-            fontName=bold_font_name,
-            fontSize=16,
-            leading=20,
-            textColor=colors.HexColor("#1a4a98"),
-            alignment=1,
-        )
-        sub_style = ParagraphStyle(
-            "SubStyle",
-            parent=styles["Normal"],
-            fontName=font_name,
-            fontSize=10,
-            leading=14,
-            textColor=colors.HexColor("#64748b"),
-            alignment=1,
-        )
-        th_style = ParagraphStyle(
-            "THStyle",
-            parent=styles["Normal"],
-            fontName=bold_font_name,
-            fontSize=9,
-            leading=11,
-            textColor=colors.white,
-            alignment=1,
-        )
-        td_style = ParagraphStyle(
-            "TDStyle",
-            parent=styles["Normal"],
-            fontName=font_name,
-            fontSize=8.5,
-            leading=11,
-            textColor=colors.HexColor("#1e293b"),
-        )
-        td_center = ParagraphStyle(
-            "TDCenter",
-            parent=td_style,
-            alignment=1,
-        )
-
-        elements = []
-        elements.append(Paragraph("Myanma Oil and Gas Enterprise (MOGE)", title_style))
-        elements.append(Spacer(1, 4))
         now_str = timezone.now().strftime("%Y-%m-%d %H:%M")
-        elements.append(
-            Paragraph(
-                f"System Audit Logs Report ({logs.count()} entries • Generated {now_str})",
-                sub_style,
-            )
-        )
-        elements.append(Spacer(1, 15))
+        tr_list = []
 
-        headers = ["ID", "User", "Role", "Event", "Resource", "Description", "Date & Time"]
-        table_data = [[Paragraph(h, th_style) for h in headers]]
-
-        for log in logs:
+        for idx, log in enumerate(logs, start=1):
             username = log.user.username if log.user else "Unknown"
             role = log.user.role if log.user and log.user.role else "N/A"
             action = log.action or "UNKNOWN"
@@ -178,43 +144,75 @@ class ExportLogPdfView(APIView):
                 if action_upper == "DELETE"
                 else "#475569"
             )
-            event_p = Paragraph(f"<font color='{action_color}'><b>{action_upper}</b></font>", td_center)
+            row_cls = "odd" if idx % 2 == 1 else "even"
 
-            row = [
-                Paragraph(str(log.id), td_center),
-                Paragraph(username, td_style),
-                Paragraph(role, td_center),
-                event_p,
-                Paragraph(resource, td_style),
-                Paragraph(desc, td_style),
-                Paragraph(date_time, td_center),
-            ]
-            table_data.append(row)
-
-        col_widths = [35, 75, 65, 60, 75, 330, 140]
-        t = Table(table_data, colWidths=col_widths, repeatRows=1)
-        t.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a4a98")),
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
-                    (
-                        "ROWBACKGROUNDS",
-                        (0, 1),
-                        (-1, -1),
-                        [colors.white, colors.HexColor("#f8fafc")],
-                    ),
-                ]
+            tr_list.append(
+                f"""
+                <tr class="{row_cls}">
+                    <td class="center" width="35">{log.id}</td>
+                    <td class="left" width="75">{html.escape(str(username))}</td>
+                    <td class="center" width="65">{html.escape(str(role))}</td>
+                    <td class="center" width="60"><span style="color: {action_color}; font-weight: bold;">{html.escape(str(action_upper))}</span></td>
+                    <td class="left" width="75">{html.escape(str(resource))}</td>
+                    <td class="left" width="330">{html.escape(str(desc))}</td>
+                    <td class="center" width="140">{html.escape(str(date_time))}</td>
+                </tr>
+                """
             )
-        )
 
-        elements.append(t)
-        doc.build(elements)
+        if not tr_list:
+            tr_list.append(
+                """
+                <tr class="odd">
+                    <td class="center" colspan="7">No audit logs found.</td>
+                </tr>
+                """
+            )
 
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"></head>
+        <body>
+            <div class="header">
+                <div class="title">Myanma Oil and Gas Enterprise (MOGE)</div>
+                <div class="subtitle">System Audit Logs Report ({len(logs)} entries • Generated {now_str})</div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th width="35">ID</th>
+                        <th width="75">User</th>
+                        <th width="65">Role</th>
+                        <th width="60">Event</th>
+                        <th width="75">Resource</th>
+                        <th width="330">Description</th>
+                        <th width="140">Date &amp; Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {"".join(tr_list)}
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+
+        buffer = io.BytesIO()
+        mediabox = fitz.paper_rect("a4-l")
+        where = mediabox + (30, 30, -30, -30)
+
+        story = fitz.Story(html=html_content, user_css=css, archive=archive)
+        writer = fitz.DocumentWriter(buffer)
+
+        more = True
+        while more:
+            device = writer.begin_page(mediabox)
+            more, _ = story.place(where)
+            story.draw(device)
+            writer.end_page()
+
+        writer.close()
         pdf_value = buffer.getvalue()
         buffer.close()
 

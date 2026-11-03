@@ -8,7 +8,7 @@ class RankView(views.APIView):
 
     def post(self, request):
         serializer = RankSerializer(data=request.data)
-        serializer.initial_data["rank_id"] = generateId(Rank, "rank_id", "R")
+        serializer.initial_data["rank_id"] = generateId(Rank, "rank_id", "RANK")
         serializer.is_valid(raise_exception=True)
         rank = serializer.save()
         res = RankSerializer(rank).data

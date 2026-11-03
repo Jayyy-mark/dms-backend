@@ -1,10 +1,13 @@
 from rest_framework import views
 from rest_framework import status
 from django.db.models import Q
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from features.staffs.serializers import StaffSerializer
-from features.shared.helpers.helper import generateId, removeNoneValue
+from features.shared.helpers.helper import generateId, removeNoneValue, paginate_queryset, _to_int
 from features.staffs.models import Staff
 from common.security.authorization.roles import Roles
+
 
 def get_staff_department_filter(request) -> Q:
     if request.user.role in Roles.PRIVILEGED:
@@ -29,7 +32,7 @@ class StaffView(views.APIView):
 
     def get(self, request):
         dept_filter = get_staff_department_filter(request)
-        
+
         if request.query_params:
             filters = removeNoneValue({
                 "id": request.query_params.get("id"),
@@ -68,6 +71,60 @@ class StaffView(views.APIView):
             return views.Response({"message": "Deleted successfully!"})
         except Staff.DoesNotExist:
             return views.Response({"message": "Failed to delete!"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@method_decorator(never_cache, name="dispatch")
+class StaffListView(views.APIView):
+    """
+    GET staff/list/?limit=10&offset=0&tab=all&search=&snapshot_id=
+    Database-level pagination & stats for Staffs.
+    """
+
+    def get(self, request):
+        dept_filter = get_staff_department_filter(request)
+        params = request.query_params
+
+        qs = Staff.objects.select_related("department", "role", "rank", "stype").filter(dept_filter)
+
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(staff_name__icontains=search)
+                | Q(staff_email__icontains=search)
+                | Q(staff_id__icontains=search)
+                | Q(staff_ph_number__icontains=search)
+                | Q(department__department_name__icontains=search)
+                | Q(role__role_name__icontains=search)
+            )
+
+        raw_snapshot = _to_int(params.get("snapshot_id"), 0)
+        if raw_snapshot > 0:
+            qs = qs.filter(id__lte=raw_snapshot)
+
+        stats = {
+            "all": qs.count(),
+            "male": qs.filter(staff_gender__iexact="Male").count(),
+            "female": qs.filter(staff_gender__iexact="Female").count(),
+            "departments": qs.exclude(department_id__isnull=True).values("department_id").distinct().count(),
+        }
+
+        tab = (params.get("tab") or "all").strip().lower()
+        if tab == "male":
+            qs = qs.filter(staff_gender__iexact="Male")
+        elif tab == "female":
+            qs = qs.filter(staff_gender__iexact="Female")
+
+        qs = qs.order_by("-created_at", "-id")
+        page_staffs, pagination = paginate_queryset(qs, Staff, params)
+
+        return views.Response(
+            {
+                "staffs": StaffSerializer(page_staffs, many=True).data,
+                "pagination": pagination,
+                "stats": stats,
+            }
+        )
+
 
 class GetStaffByIdView(views.APIView):
 
