@@ -31,15 +31,7 @@ SECRET_KEY = "django-insecure-l=mt)pdedl991uex0y%^xre#ndpma1wyxreh&jm=(i_vk*cz3e
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    # "moge-backend-testing.up.railway.app",
-    # "moge-backend-production.up.railway.app",
-    # "moge-backend.up.railway.app",
-    # "localhost",
-    # "127.0.0.1",
-    # "10.41.250.196",
-    "*"
-]
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -231,19 +223,52 @@ INSTALLED_APPS += [
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or SECRET_KEY
 FIELD_ENCRYPTION_KEY = b"CHANGE_ME_32_BYTE_KEY"
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS
+CORS_ALLOW_ALL_ORIGINS = False
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://192.168.2.133:5173",
+    "http://192.168.2.133",
+    "http://172.19.48.1:5173",
+    "http://10.67.83.196:5173",
+    "http://10.67.83.196",
+    "http://192.168.0.2",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
-# CORS_ALLOW_CREDENTIALS = True
-# CORS_ALLOWED_ORIGINS = [
-#     "https://localhost:5173",  # Vite frontend
-#     "https://localhost",
-#     "https://127.0.0.1:5173",
-#     "https://172.19.1.156:5173",
-#     "https://192.168.0.2",
-#     "https://192.168.1.118",
-#     "https://192.168.20.141",
-# ]
+# CSRF
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://192.168.2.133:5173",
+    "http://192.168.2.133",
+    "http://172.19.48.1:5173",
+    "http://10.67.83.196:8000",
+    "http://10.67.83.196",
+    "http://192.168.0.2",
+]
+
+# Session Cookie
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_PATH = "/"
+
+# CSRF Cookie
+CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_PATH = "/"
+
+# JWT Cookie
+REST_AUTH.update(
+    {
+        "JWT_AUTH_COOKIE_USE_CSRF": False,
+        "JWT_AUTH_SAMESITE": "Lax",
+        "JWT_AUTH_SECURE": False,
+    }
+)
 
 APPEND_SLASH = False
 SITE_ID = 1
@@ -251,36 +276,6 @@ AUTH_USER_MODEL = "authentication.MogUser"
 ACCOUNT_AUTHENTICATION_METHOD = "email"
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_EMAIL_REQUIRED = True
-
-REST_AUTH.update(
-    {
-        "JWT_AUTH_COOKIE_USE_CSRF": False,
-        "JWT_AUTH_SAMESITE": "None",  # use "None" + Secure=True for HTTPS
-        "JWT_AUTH_SECURE": True,  # True in production (HTTPS)
-    }
-)
-
-# Change these lines to be conditional:
-SESSION_COOKIE_SAMESITE = "Lax" #use "None" for Secure https
-CSRF_COOKIE_SAMESITE = "Lax" #use "None" for Secure https
-
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
-
-
-# REST_AUTH.update(
-#     {
-#         "JWT_AUTH_COOKIE_USE_CSRF": False,
-#         "JWT_AUTH_SAMESITE": "Lax",
-#         "JWT_AUTH_SECURE": True,
-#     }
-# )
-
-# SESSION_COOKIE_SECURE = False
-# CSRF_COOKIE_SECURE = False
-
-# SESSION_COOKIE_SAMESITE = "Lax"
-# CSRF_COOKIE_SAMESITE = "Lax"
 
 # Email Configuration
 # EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
