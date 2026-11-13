@@ -137,7 +137,11 @@ class ExportLogPdfView(APIView):
             action_upper = action.upper()
             action_color = (
                 "#059669"
-                if action_upper == "CREATE"
+                if action_upper in ("CREATE", "RESTORE")
+                else "#2563eb"
+                if action_upper == "VIEW"
+                else "#0d9488"
+                if action_upper == "DOWNLOAD"
                 else "#b45309"
                 if action_upper == "UPDATE"
                 else "#dc2626"

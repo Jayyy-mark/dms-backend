@@ -9,6 +9,8 @@ class AuditLog(models.Model):
         ("CREATE", "Create"),
         ("UPDATE", "Update"),
         ("DELETE", "Delete"),
+        ("VIEW", "View"),
+        ("DOWNLOAD", "Download"),
         ("LOGIN", "Login"),
         ("ARCHIVE", "Archive"),
         ("RESTORE", "Restore"),

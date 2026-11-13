@@ -414,7 +414,8 @@ def globalSystemSearch(query: str, user, limit: int = 5):
             "code": loc.location_id,
             "title": loc.location_name,
             "subtitle": " • ".join(sub) if sub else (loc.location_type or "Activity Location"),
-            "url": f"/locations/edit/{loc.id}",
+            "status": "recycled" if loc.is_deleted else "active",
+            "url": "/locations/recycles/" if loc.is_deleted else f"/locations/edit/{loc.id}",
             "type": "location",
         })
 

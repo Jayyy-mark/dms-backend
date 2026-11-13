@@ -13,6 +13,7 @@ from features.documents.views import (
     RecycledDocumentView,
     RecycledDocumentListView,
     DeepSearchDocumentView,
+    DocumentAuditActionView,
 )
 
 urlpatterns = [
@@ -36,4 +37,6 @@ urlpatterns = [
     path("recycle/restore/<int:id>/", RecycledDocumentView.as_view()),
     path("recycle/search/", GetRecycledDocumentByColumnView.as_view()),
     path("expire/all/", GetExpiredDocumentView.as_view()),
+    path("view/<int:id>/", DocumentAuditActionView.as_view(), {"action": "VIEW"}),
+    path("download/<int:id>/", DocumentAuditActionView.as_view(), {"action": "DOWNLOAD"}),
 ]

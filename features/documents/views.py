@@ -511,3 +511,39 @@ class RecycledDocumentListView(APIView):
             }
         )
 
+
+class DocumentAuditActionView(APIView):
+    """
+    POST document/view/<id>/ or document/download/<id>/
+    Records VIEW or DOWNLOAD audit log entries for a document.
+    """
+
+    action_type = "VIEW"
+
+    def post(self, request: Request, id: int, action: str | None = None) -> Response:
+        from rest_framework import status as http_status
+
+        act = (action or self.action_type or "VIEW").upper()
+        if act not in ("VIEW", "DOWNLOAD"):
+            act = "VIEW"
+
+        dept_filter = get_department_filter(request)
+        try:
+            document = Document.objects.filter(dept_filter).get(id=id)
+        except Document.DoesNotExist:
+            return Response(
+                {"message": "Document not found."},
+                status=http_status.HTTP_404_NOT_FOUND,
+            )
+
+        verb = "Viewed" if act == "VIEW" else "Downloaded"
+        log_action(
+            user=request.user,
+            action=act,
+            model_name="documents",
+            object_id=document.id,
+            description=f"{verb} {document.document_name}",
+        )
+
+        return Response({"message": f"{verb} action logged."})
+

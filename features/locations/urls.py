@@ -7,6 +7,9 @@ from features.locations.views import (
     GetLocationByIdView,
     GetLocationOptionsView,
     ExportLocationPdfView,
+    RecycledLocationView,
+    RecycledLocationListView,
+    LocationAuditActionView,
 )
 
 urlpatterns = [
@@ -20,4 +23,10 @@ urlpatterns = [
     path("search/", GetLocationByColumnView.as_view()),
     path("options/", GetLocationOptionsView.as_view()),
     path("export-pdf/", ExportLocationPdfView.as_view()),
+    path("recycle/all/", RecycledLocationView.as_view()),
+    path("recycle/list/", RecycledLocationListView.as_view()),
+    path("recycle/restore/<int:id>/", RecycledLocationView.as_view()),
+    path("recycle/delete/<int:id>/", RecycledLocationView.as_view()),
+    path("view/<int:id>/", LocationAuditActionView.as_view(), {"action": "VIEW"}),
+    path("download/<int:id>/", LocationAuditActionView.as_view(), {"action": "DOWNLOAD"}),
 ]

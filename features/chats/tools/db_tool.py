@@ -223,7 +223,7 @@ def query_database_tool(query: str) -> str:
         log_qs = AuditLog.objects.all().select_related("user").order_by("-created_at")
 
         # Check for action type filter
-        action_types = ["CREATE", "UPDATE", "DELETE", "LOGIN", "ARCHIVE", "RESTORE", "OTHER"]
+        action_types = ["CREATE", "UPDATE", "DELETE", "VIEW", "DOWNLOAD", "LOGIN", "ARCHIVE", "RESTORE", "OTHER"]
         action_filter = None
         for action_type in action_types:
             if action_type.lower() in query_lower:

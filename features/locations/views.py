@@ -1,5 +1,7 @@
 from rest_framework.views import APIView, Request, Response
+from rest_framework import status
 from django.db.models import Q
+from django.utils import timezone
 from features.locations.serializers import (
     LocationSearchSerializer,
     LocationSerializer,
@@ -80,7 +82,7 @@ class LocationView(APIView):
     def get(self, request: Request) -> Response:
 
         dept_filter = get_location_department_filter(request)
-        locations = Location.objects.select_related("department").filter(dept_filter)
+        locations = Location.objects.select_related("department").prefetch_related("photos").filter(dept_filter, is_deleted=False)
         
         res = LocationSerializer(locations, many=True)
         print("this is Location data : ", res.data)
@@ -88,7 +90,7 @@ class LocationView(APIView):
 
     def put(self, request: Request, id: int) -> Response:
         print("route entered!")
-        location = Location.objects.select_related("department").get(id=id)
+        location = Location.objects.select_related("department").get(id=id, is_deleted=False)
         serializer = LocationUpdateSerializer(instance=location, data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -112,19 +114,17 @@ class LocationView(APIView):
 
     def delete(self, request: Request, id: int) -> Response:
 
-        location = Location.objects.get(id=id)
-
-        num, _ = location.delete()
-
-        if num < 0:
-            return Response({"message": f"Failed to delete {location.location_name}"})
+        location = Location.objects.get(id=id, is_deleted=False)
+        location.is_deleted = True
+        location.deleted_time = timezone.now()
+        location.save(update_fields=["is_deleted", "deleted_time"])
 
         log_action(
             user=request.user,
             action="DELETE",
             model_name="locations",
             object_id=location.id,
-            description=f"Deleted {location.location_name}",
+            description=f"Moved {location.location_name} to recycle bin",
         )
 
         return Response({"message": f"{location.location_name} has been deleted!"})
@@ -134,7 +134,7 @@ class GetLocationByIdView(APIView):
 
     def get(self, request: Request, id: int) -> Response:
 
-        location = Location.objects.select_related("department").get(id=id)
+        location = Location.objects.select_related("department").prefetch_related("photos").get(id=id, is_deleted=False)
 
         return Response({"location": LocationSerializer(location).data})
 
@@ -152,7 +152,8 @@ class GetLocationByColumnView(APIView):
 
         locations = (
             Location.objects.select_related("department")
-            .filter(dept_filter)
+            .prefetch_related("photos")
+            .filter(dept_filter, is_deleted=False)
             .filter(filters)
         )
 
@@ -162,7 +163,7 @@ class GetLocationByColumnView(APIView):
 class GetLocationOptionsView(APIView):
     def get(self, request: Request) -> Response:
         dept_filter = get_location_department_filter(request)
-        qs = Location.objects.filter(dept_filter)
+        qs = Location.objects.filter(dept_filter, is_deleted=False)
         return Response(
             {
                 "location_types": list(
@@ -277,7 +278,7 @@ class ExportLocationPdfView(APIView):
     def get(self, request: Request) -> HttpResponse:
         dept_filter = get_location_department_filter(request)
         locations = (
-            Location.objects.filter(dept_filter)
+            Location.objects.filter(dept_filter, is_deleted=False)
             .select_related("department")
             .order_by("-date", "-id")
         )
@@ -451,7 +452,7 @@ class LocationListView(APIView):
         dept_filter = get_location_department_filter(request)
         params = request.query_params
 
-        base_qs = Location.objects.select_related("department").prefetch_related("photos").filter(dept_filter)
+        base_qs = Location.objects.select_related("department").prefetch_related("photos").filter(dept_filter, is_deleted=False)
 
         try:
             adv_filters = setLocationFilters(params)
@@ -511,4 +512,168 @@ class LocationListView(APIView):
                 "stats": stats,
             }
         )
+
+
+# <!--==============================
+#   RECYCLED LOCATIONS VIEWS
+# ================================-->
+class RecycledLocationView(APIView):
+    def get(self, request: Request) -> Response:
+        dept_filter = get_location_department_filter(request)
+        recycled_locations = (
+            Location.objects.select_related("department")
+            .prefetch_related("photos")
+            .filter(dept_filter, is_deleted=True)
+            .order_by("-deleted_time", "-id")
+        )
+        return Response(
+            {"locations": LocationSerializer(recycled_locations, many=True).data}
+        )
+
+    def patch(self, request: Request, id: int) -> Response:
+        dept_filter = get_location_department_filter(request)
+        try:
+            location = (
+                Location.objects.select_related("department")
+                .prefetch_related("photos")
+                .filter(dept_filter)
+                .get(id=id, is_deleted=True)
+            )
+        except Location.DoesNotExist:
+            return Response(
+                {"message": "Location not found in recycle bin."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        location.is_deleted = False
+        location.deleted_time = None
+        location.save(update_fields=["is_deleted", "deleted_time"])
+
+        log_action(
+            user=request.user,
+            action="RESTORE",
+            model_name="recycled locations",
+            object_id=location.id,
+            description=f"Restored {location.location_name}",
+        )
+
+        return Response(
+            {
+                "location": LocationSerializer(location).data,
+                "message": f"{location.location_name} has been restored!",
+            }
+        )
+
+    def delete(self, request: Request, id: int) -> Response:
+        dept_filter = get_location_department_filter(request)
+        try:
+            location = Location.objects.filter(dept_filter).get(id=id, is_deleted=True)
+        except Location.DoesNotExist:
+            return Response(
+                {"message": "Location not found in recycle bin."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        loc_name = location.location_name
+        loc_id = location.id
+        num, _ = location.delete()
+
+        if num < 0:
+            return Response({"message": f"Failed to delete {loc_name}"})
+
+        log_action(
+            user=request.user,
+            action="DELETE",
+            model_name="recycled locations",
+            object_id=loc_id,
+            description=f"Permanently deleted {loc_name}",
+        )
+
+        return Response({"message": f"{loc_name} has been permanently deleted!"})
+
+
+@method_decorator(never_cache, name="dispatch")
+class RecycledLocationListView(APIView):
+    """
+    GET location/recycle/list/?limit=10&offset=0&search=&snapshot_id=
+    Database-level pagination & stats for Recycled Locations.
+    """
+
+    def get(self, request: Request) -> Response:
+        from features.shared.helpers.helper import paginate_queryset, _to_int
+
+        dept_filter = get_location_department_filter(request)
+        params = request.query_params
+
+        base_qs = (
+            Location.objects.select_related("department")
+            .prefetch_related("photos")
+            .filter(dept_filter, is_deleted=True)
+        )
+
+        raw_snapshot = _to_int(params.get("snapshot_id"), 0)
+        if raw_snapshot > 0:
+            base_qs = base_qs.filter(id__lte=raw_snapshot)
+
+        stats = {
+            "total": base_qs.count(),
+        }
+
+        qs = base_qs
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(location_name__icontains=search)
+                | Q(location_id__icontains=search)
+                | Q(city__icontains=search)
+                | Q(state_division__icontains=search)
+                | Q(location_type__icontains=search)
+                | Q(description__icontains=search)
+                | Q(department__department_name__icontains=search)
+            )
+
+        qs = qs.order_by("-deleted_time", "-id")
+        page_locs, pagination = paginate_queryset(qs, Location, params)
+
+        return Response(
+            {
+                "locations": LocationSerializer(page_locs, many=True).data,
+                "pagination": pagination,
+                "stats": stats,
+            }
+        )
+
+
+class LocationAuditActionView(APIView):
+    """
+    POST location/view/<id>/ or location/download/<id>/
+    Records VIEW or DOWNLOAD audit log entries for a location.
+    """
+
+    action_type = "VIEW"
+
+    def post(self, request: Request, id: int, action: str | None = None) -> Response:
+        act = (action or self.action_type or "VIEW").upper()
+        if act not in ("VIEW", "DOWNLOAD"):
+            act = "VIEW"
+
+        dept_filter = get_location_department_filter(request)
+        try:
+            location = Location.objects.filter(dept_filter).get(id=id)
+        except Location.DoesNotExist:
+            return Response(
+                {"message": "Location not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        verb = "Viewed" if act == "VIEW" else "Downloaded"
+        log_action(
+            user=request.user,
+            action=act,
+            model_name="locations",
+            object_id=location.id,
+            description=f"{verb} {location.location_name}",
+        )
+
+        return Response({"message": f"{verb} action logged."})
 

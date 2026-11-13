@@ -31,6 +31,9 @@ class Location(models.Model):
 
     date = models.DateField(null=False)
 
+    is_deleted = models.BooleanField(default=False)
+    deleted_time = models.DateTimeField(null=True, blank=True)
+
     department = models.ForeignKey(
         Department,
         on_delete=models.CASCADE,
