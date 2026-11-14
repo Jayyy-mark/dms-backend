@@ -231,6 +231,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.100.197:5173",
     "http://192.168.0.2",
     "http://192.168.0.2:5173",
+    "http://172.20.2.113:5173",
+    "http://172.20.2.113",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -241,6 +243,8 @@ CSRF_TRUSTED_ORIGINS = [
     "http://192.168.100.197:5173",
     "http://192.168.0.2:5173",
     "http://192.168.0.2",
+    "http://172.20.2.113:5173",
+    "http://172.20.2.113",
 ]
 
 # Session Cookie
